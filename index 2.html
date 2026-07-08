@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Icon Sketch Maker</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #060a12;
+  color: #e2e8f0;
+  font-family: system-ui, sans-serif;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header */
+#header {
+  padding: 10px 16px;
+  background: #0f172a;
+  border-bottom: 1px solid rgba(99,102,241,0.2);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+#header h1 {
+  font-size: 16px;
+  font-weight: 800;
+  background: linear-gradient(90deg,#818cf8,#34d399);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Canvas area */
+#stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+#main-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: white;
+}
+
+/* Progress bar */
+#progress-bar {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 3px;
+  background: rgba(99,102,241,0.15);
+  display: none;
+  z-index: 10;
+}
+#progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg,#6366f1,#34d399);
+  transition: width 0.1s linear;
+  box-shadow: 0 0 10px rgba(99,102,241,0.8);
+}
+
+/* Status badge */
+#status-badge {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 18px;
+  background: rgba(10,15,28,0.92);
+  border: 1px solid rgba(99,102,241,0.35);
+  border-radius: 100px;
+  font-size: 12px;
+  color: #a5b4fc;
+  font-weight: 600;
+  white-space: nowrap;
+  display: none;
+  backdrop-filter: blur(10px);
+}
+
+/* Stop button */
+#stop-btn {
+  position: absolute;
+  top: 14px; right: 14px;
+  padding: 7px 14px;
+  background: rgba(220,38,38,0.9);
+  color: white;
+  border: none;
+  border-radius: 100px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  display: none;
+  z-index: 20;
+}
+
+/* Processing overlay */
+#proc-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 30;
+  backdrop-filter: blur(4px);
+}
+.spinner {
+  width: 44px; height: 44px;
+  border: 3px solid rgba(99,102,241,0.2);
+  border-top: 3px solid #6366f1;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#proc-text { color: #94a3b8; font-size: 13px; font-weight: 600; }
+
+/* Empty state */
+#empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 30px;
+}
+#empty-state .icon { font-size: 52px; }
+#empty-state h2 { font-size: 20px; font-weight: 800; color: #f1f5f9; }
+#empty-state p { font-size: 13px; color: #64748b; line-height: 1.6; max-width: 280px; }
+#upload-zone {
+  width: 100%;
+  max-width: 300px;
+  padding: 20px;
+  border: 2px dashed rgba(99,102,241,0.4);
+  border-radius: 14px;
+  background: rgba(99,102,241,0.05);
+  cursor: pointer;
+  text-align: center;
+  font-size: 13px;
+  color: #818cf8;
+  font-weight: 700;
+  transition: all 0.2s;
+}
+#upload-zone:hover { border-color: #6366f1; background: rgba(99,102,241,0.1); }
+#upload-zone.drag-over { border-color: #34d399; background: rgba(52,211,153,0.08); color: #34d399; }
+
+/* Bottom bar */
+#bottom-bar {
+  background: rgba(10,15,28,0.98);
+  border-top: 1px solid rgba(99,102,241,0.12);
+  padding: 12px 14px;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Info row */
+#info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+#info-row span { color: #a5b4fc; }
+
+/* Settings row */
+#settings-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.setting-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+.setting-item input[type=range] {
+  width: 70px; height: 4px;
+  border-radius: 2px;
+  outline: none; border: none;
+  cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  accent-color: #6366f1;
+  background: linear-gradient(to right,#6366f1 50%,#1e293b 50%);
+}
+.setting-item input[type=range]::-webkit-slider-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: #6366f1;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border: 2px solid rgba(255,255,255,0.2);
+}
+.val-badge {
+  background: rgba(99,102,241,0.15);
+  border: 1px solid rgba(99,102,241,0.3);
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #f1f5f9;
+  min-width: 32px;
+  text-align: center;
+}
+
+/* Action row */
+#action-row { display: flex; gap: 10px; }
+#play-btn {
+  flex: 1;
+  padding: 12px;
+  background: linear-gradient(135deg,#4f46e5,#7c3aed);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(99,102,241,0.35);
+}
+#play-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+#change-btn {
+  padding: 12px 14px;
+  background: rgba(30,41,59,0.8);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+/* Icon preview strip */
+#icon-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+#icon-strip::-webkit-scrollbar { height: 3px; }
+#icon-strip::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 2px; }
+.icon-thumb {
+  width: 44px; height: 44px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1.5px solid rgba(99,102,241,0.3);
+  background: white;
+  object-fit: contain;
+  padding: 2px;
+}
+.icon-thumb.current { border-color: #6366f1; box-shadow: 0 0 8px rgba(99,102,241,0.5); }
+.icon-thumb.done { border-color: #34d399; opacity: 0.7; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span style="font-size:20px">✏️</span>
+  <h1>Icon Sketch Maker</h1>
+</div>
+
+<div id="stage">
+  <canvas id="main-canvas"></canvas>
+
+  <!-- Empty / upload state -->
+  <div id="empty-state">
+    <div class="icon">🖼️</div>
+    <h2>Upload Icon Sheet</h2>
+    <p>Upload an image containing multiple icons arranged in a grid. The app will detect and sketch them one by one.</p>
+    <div id="upload-zone" onclick="fileInput.click()"
+      ondragover="onDragOver(event)"
+      ondragleave="onDragLeave(event)"
+      ondrop="onDrop(event)">
+      📂 Tap or drag & drop image here
+    </div>
+  </div>
+
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+  <div id="status-badge"></div>
+  <button id="stop-btn" onclick="stopAnim()">⏹ Stop</button>
+  <div id="proc-overlay">
+    <div class="spinner"></div>
+    <div id="proc-text">Detecting icons…</div>
+  </div>
+</div>
+
+<!-- Bottom bar (shown after upload) -->
+<div id="bottom-bar">
+  <div id="info-row">
+    <div id="info-text">0 icons · 0 pages</div>
+    <div>6 icons per page</div>
+  </div>
+
+  <div id="icon-strip"></div>
+
+  <div id="settings-row">
+    <div class="setting-item">
+      Thickness
+      <input type="range" id="sl-thick" min="1" max="5" step="0.5" value="2" oninput="updateSlider(this,'thick')"/>
+      <span class="val-badge" id="v-thick">2</span>
+    </div>
+    <div class="setting-item">
+      Threshold
+      <input type="range" id="sl-thresh" min="50" max="230" value="160" oninput="updateSlider(this,'thresh')"/>
+      <span class="val-badge" id="v-thresh">160</span>
+    </div>
+    <div class="setting-item">
+      Speed
+      <input type="range" id="sl-speed" min="1" max="12" value="4" oninput="updateSlider(this,'speed')"/>
+      <span class="val-badge" id="v-speed">4s</span>
+    </div>
+  </div>
+
+  <div id="action-row">
+    <button id="change-btn" onclick="fileInput.click()">🖼 Change</button>
+    <button id="play-btn" onclick="playAnim()">▶ Sketch All Icons</button>
+  </div>
+</div>
+
+<!-- Hidden file input -->
+<input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleFile(this)"/>
+
+<script>
+// ── Canvas & State ───────────────────────────────────────
+const canvas = document.getElementById('main-canvas');
+const ctx = canvas.getContext('2d');
+const CW = 1080, CH = 1080; // square canvas
+canvas.width = CW; canvas.height = CH;
+
+// Init white canvas
+ctx.fillStyle = '#fff';
+ctx.fillRect(0, 0, CW, CH);
+
+let icons = [];        // Array of {canvas, dataURL} per detected icon
+let settings = { thick: 2, thresh: 160, speed: 4 };
+let isAnimating = false;
+let stopFlag = false;
+let animRaf = null;
+
+const ICONS_PER_PAGE = 6;
+const COLS = 3, ROWS = 2; // 3x2 grid per page
+const PAD = 40, GAP = 24;
+const CELL_W = Math.floor((CW - PAD*2 - GAP*(COLS-1)) / COLS);
+const CELL_H = Math.floor((CH - PAD*2 - GAP*(ROWS-1)) / ROWS);
+
+function getCellRect(slotInPage) {
+  const row = Math.floor(slotInPage / COLS);
+  const col = slotInPage % COLS;
+  return {
+    x: PAD + col * (CELL_W + GAP),
+    y: PAD + row * (CELL_H + GAP),
+    w: CELL_W,
+    h: CELL_H
+  };
+}
+
+// ── Slider ───────────────────────────────────────────────
+function updateSlider(el, key) {
+  settings[key] = parseFloat(el.value);
+  const unit = key === 'speed' ? 's' : '';
+  document.getElementById('v-' + key).textContent = el.value + unit;
+  // Update gradient
+  const min = parseFloat(el.min), max = parseFloat(el.max);
+  const pct = ((settings[key] - min) / (max - min)) * 100;
+  el.style.background = `linear-gradient(to right,#6366f1 ${pct}%,#1e293b ${pct}%)`;
+}
+
+// ── File handling ─────────────────────────────────────────
+function handleFile(input) {
+  const file = input.files[0];
+  if(!file) return;
+  input.value = '';
+  const reader = new FileReader();
+  reader.onload = e => processImage(e.target.result);
+  reader.readAsDataURL(file);
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.add('drag-over');
+}
+function onDragLeave(e) {
+  document.getElementById('upload-zone').classList.remove('drag-over');
+}
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag-over');
+  const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => processImage(ev.target.result);
+  reader.readAsDataURL(file);
+}
+
+// ── Icon Detection ────────────────────────────────────────
+// Strategy: load image, detect grid by finding rows & cols of icons
+// using a smart approach: sample brightness to find dividers
+function processImage(src) {
+  showProc('Analyzing image…');
+  const img = new Image();
+  img.onload = () => {
+    // Draw image to temp canvas to analyze
+    const tmp = document.createElement('canvas');
+    tmp.width = img.width; tmp.height = img.height;
+    const tCtx = tmp.getContext('2d');
+    tCtx.fillStyle = '#fff';
+    tCtx.fillRect(0, 0, img.width, img.height);
+    tCtx.drawImage(img, 0, 0);
+
+    showProc('Detecting icon grid…');
+
+    // Detect grid automatically
+    const { rows, cols } = detectGrid(tCtx, img.width, img.height);
+
+    showProc(`Found ${rows}×${cols} grid — extracting icons…`);
+
+    // Extract each icon cell
+    const iconW = Math.floor(img.width / cols);
+    const iconH = Math.floor(img.height / rows);
+
+    icons = [];
+    for(let r = 0; r < rows; r++) {
+      for(let c = 0; c < cols; c++) {
+        const ic = document.createElement('canvas');
+        ic.width = iconW; ic.height = iconH;
+        const iCtx = ic.getContext('2d');
+        iCtx.fillStyle = '#fff';
+        iCtx.fillRect(0, 0, iconW, iconH);
+        iCtx.drawImage(img, c*iconW, r*iconH, iconW, iconH, 0, 0, iconW, iconH);
+        // Check if this cell has content (not blank)
+        if(hasContent(iCtx, iconW, iconH)) {
+          icons.push({ canvas: ic, dataURL: ic.toDataURL() });
+        }
+      }
+    }
+
+    hideProc();
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('bottom-bar').style.display = 'flex';
+    renderIconStrip();
+    updateInfo();
+    // Show first page preview
+    drawPagePreview(0);
+    document.getElementById('play-btn').disabled = false;
+  };
+  img.onerror = () => { hideProc(); alert('Could not load image.'); };
+  img.src = src;
+}
+
+function detectGrid(tCtx, W, H) {
+  // Sample horizontal lines to find row count
+  // Sample vertical lines to find col count
+  // Look for white/light horizontal bands (separators between rows)
+
+  const data = tCtx.getImageData(0, 0, W, H).data;
+
+  function brightness(x, y) {
+    const i = (Math.floor(y) * W + Math.floor(x)) * 4;
+    return (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
+  }
+
+  function rowDarkness(y) {
+    let dark = 0;
+    const samples = 30;
+    for(let i = 0; i < samples; i++) {
+      const x = (i / samples) * W;
+      if(brightness(x, y) < 200) dark++;
+    }
+    return dark / samples;
+  }
+
+  function colDarkness(x) {
+    let dark = 0;
+    const samples = 30;
+    for(let i = 0; i < samples; i++) {
+      const y = (i / samples) * H;
+      if(brightness(x, y) < 200) dark++;
+    }
+    return dark / samples;
+  }
+
+  // Scan for row separators (light horizontal bands)
+  const rowSeps = [0];
+  let inLight = false;
+  for(let y = 1; y < H-1; y++) {
+    const d = rowDarkness(y);
+    if(d < 0.05 && !inLight) {
+      inLight = true;
+      rowSeps.push(y);
+    } else if(d >= 0.05) {
+      inLight = false;
+    }
+  }
+  rowSeps.push(H);
+
+  // Scan for col separators
+  const colSeps = [0];
+  inLight = false;
+  for(let x = 1; x < W-1; x++) {
+    const d = colDarkness(x);
+    if(d < 0.05 && !inLight) {
+      inLight = true;
+      colSeps.push(x);
+    } else if(d >= 0.05) {
+      inLight = false;
+    }
+  }
+  colSeps.push(W);
+
+  // Count rows = number of gaps between separators
+  const rows = Math.max(1, rowSeps.length - 1);
+  const cols = Math.max(1, colSeps.length - 1);
+
+  // Fallback: if detection gives weird results, use common grid sizes
+  // based on aspect ratio
+  const aspect = W / H;
+  let finalRows = rows, finalCols = cols;
+
+  if(rows < 2 || cols < 2 || rows > 15 || cols > 15) {
+    // Use smart fallback based on image analysis
+    // Count approximate icon size by finding the first icon boundaries
+    finalCols = Math.round(Math.sqrt(aspect * 49)); // estimate
+    finalRows = Math.round(49 / finalCols);
+    // Clamp
+    finalCols = Math.max(2, Math.min(10, finalCols));
+    finalRows = Math.max(2, Math.min(10, finalRows));
+  }
+
+  return { rows: finalRows, cols: finalCols };
+}
+
+function hasContent(iCtx, w, h) {
+  // Check if this cell has meaningful content (not all white)
+  const d = iCtx.getImageData(0, 0, w, h).data;
+  let dark = 0;
+  for(let i = 0; i < d.length; i += 16) {
+    const b = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
+    if(b < 220 && d[i+3] > 128) dark++;
+  }
+  return dark > 20;
+}
+
+// ── Page Preview ─────────────────────────────────────────
+function drawPagePreview(pageIdx) {
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, CW, CH);
+
+  const start = pageIdx * ICONS_PER_PAGE;
+  const end = Math.min(start + ICONS_PER_PAGE, icons.length);
+
+  for(let i = start; i < end; i++) {
+    const slot = i - start;
+    const cell = getCellRect(slot);
+    const ic = icons[i].canvas;
+
+    // Light cell background
+    ctx.fillStyle = '#fafafa';
+    ctx.beginPath();
+    ctx.roundRect(cell.x, cell.y, cell.w, cell.h, 12);
+    ctx.fill();
+
+    // Draw icon fitted in cell
+    const ratio = ic.width / ic.height;
+    let dw, dh;
+    if(ratio > cell.w / cell.h) { dw = cell.w - 20; dh = dw / ratio; }
+    else { dh = cell.h - 20; dw = dh * ratio; }
+    const dx = cell.x + (cell.w - dw) / 2;
+    const dy = cell.y + (cell.h - dh) / 2;
+    ctx.drawImage(ic, dx, dy, dw, dh);
+  }
+
+  // Page indicator
+  const totalPages = Math.ceil(icons.length / ICONS_PER_PAGE);
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = 'bold 18px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(`Preview · Page ${pageIdx+1} of ${totalPages}`, CW/2, CH - 16);
+}
+
+function updateInfo() {
+  const total = icons.length;
+  const pages = Math.ceil(total / ICONS_PER_PAGE);
+  document.getElementById('info-text').textContent = `${total} icons detected · ${pages} pages`;
+}
+
+function renderIconStrip() {
+  const strip = document.getElementById('icon-strip');
+  strip.innerHTML = '';
+  icons.forEach((ic, i) => {
+    const img = document.createElement('img');
+    img.src = ic.dataURL;
+    img.className = 'icon-thumb';
+    img.title = `Icon ${i+1}`;
+    strip.appendChild(img);
+  });
+}
+
+function updateIconStrip(currentIdx) {
+  const thumbs = document.querySelectorAll('.icon-thumb');
+  thumbs.forEach((t, i) => {
+    t.classList.remove('current', 'done');
+    if(i < currentIdx) t.classList.add('done');
+    if(i === currentIdx) {
+      t.classList.add('current');
+      t.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  });
+}
+
+// ── Pixel Extraction ──────────────────────────────────────
+function extractPoints(iconCanvas, cellRect) {
+  return new Promise(resolve => {
+    // Draw icon into a temp 1080x1080 canvas at the cell position
+    const tmp = document.createElement('canvas');
+    tmp.width = CW; tmp.height = CH;
+    const tCtx = tmp.getContext('2d');
+    tCtx.fillStyle = '#fff';
+    tCtx.fillRect(0, 0, CW, CH);
+
+    const ic = iconCanvas;
+    const cell = cellRect;
+    const ratio = ic.width / ic.height;
+    let dw, dh;
+    if(ratio > cell.w / cell.h) { dw = cell.w - 20; dh = dw / ratio; }
+    else { dh = cell.h - 20; dw = dh * ratio; }
+    const dx = cell.x + (cell.w - dw) / 2;
+    const dy = cell.y + (cell.h - dh) / 2;
+
+    tCtx.imageSmoothingEnabled = true;
+    tCtx.drawImage(ic, dx, dy, dw, dh);
+
+    const imgData = tCtx.getImageData(Math.floor(dx), Math.floor(dy), Math.ceil(dw), Math.ceil(dh));
+    const data = imgData.data;
+    const W = Math.ceil(dw), H = Math.ceil(dh);
+    const STEP = 2;
+    const tl = [], tr = [], bl = [], br = [];
+    const qW = W / 2, qH = H / 2;
+    const thresh = settings.thresh;
+
+    for(let y = 0; y < H; y += STEP) {
+      for(let x = 0; x < W; x += STEP) {
+        const i = (y * W + x) * 4;
+        const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+        if(a > 128) {
+          const bright = r*0.299 + g*0.587 + b*0.114;
+          if(bright < thresh) {
+            const gx = dx + x, gy = dy + y;
+            if(y < qH) { x < qW ? tl.push({x:gx,y:gy,r,g,b}) : tr.push({x:gx,y:gy,r,g,b}); }
+            else { x < qW ? bl.push({x:gx,y:gy,r,g,b}) : br.push({x:gx,y:gy,r,g,b}); }
+          }
+        }
+      }
+    }
+
+    const sort = pts => {
+      pts.sort((a,b) => {
+        const rA = Math.floor(a.y/12), rB = Math.floor(b.y/12);
+        return rA === rB ? a.x - b.x : rA - rB;
+      });
+      for(let i = pts.length-1; i > 0; i--) {
+        if(Math.random() > 0.85) {
+          const j = Math.max(0, i - Math.floor(Math.random()*6));
+          [pts[i], pts[j]] = [pts[j], pts[i]];
+        }
+      }
+      return pts;
+    };
+
+    resolve([...sort(tl), ...sort(tr), ...sort(bl), ...sort(br)]);
+  });
+}
+
+// ── Hand SVG ──────────────────────────────────────────────
+const HAND_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" style="overflow:visible">
+  <defs><filter id="sh"><feDropShadow dx="2" dy="4" stdDeviation="3" flood-opacity="0.3"/></filter></defs>
+  <g filter="url(#sh)">
+    <path d="M120 400 L350 120 L370 135 L140 415 Z" fill="#2C3E50"/>
+    <path d="M120 400 L140 415 L90 450 Z" fill="#E0C097"/>
+    <path d="M280 350 C 350 300,450 400,480 600" stroke="#F5D0C5" stroke-width="130" stroke-linecap="round"/>
+    <path d="M200 340 C 250 380,320 320,310 270" stroke="#F5D0C5" stroke-width="60" stroke-linecap="round" fill="none"/>
+    <ellipse cx="305" cy="275" rx="18" ry="22" transform="rotate(-20 305 275)" fill="#FFC1CC"/>
+    <path d="M150 300 C 180 280,260 180,360 210" stroke="#F5D0C5" stroke-width="55" stroke-linecap="round" fill="none"/>
+    <ellipse cx="355" cy="210" rx="18" ry="22" transform="rotate(70 355 210)" fill="#FFC1CC"/>
+    <path d="M220 380 C 260 360,280 320,260 240" stroke="#F5D0C5" stroke-width="55" stroke-linecap="round" fill="none"/>
+    <ellipse cx="260" cy="245" rx="16" ry="20" transform="rotate(-10 260 245)" fill="#FFC1CC"/>
+    <path d="M400 450 L650 650 L350 750 Z" fill="#2C3E50"/>
+  </g>
+</svg>`;
+const handImg = new Image();
+handImg.src = 'data:image/svg+xml;base64,' + btoa(HAND_SVG);
+
+// ── Animation ─────────────────────────────────────────────
+async function playAnim() {
+  if(!icons.length) return;
+  if(isAnimating) {
+    stopAnim();
+    return;
+  }
+
+  isAnimating = true;
+  stopFlag = false;
+  document.getElementById('play-btn').textContent = '⏸ Pause';
+  document.getElementById('play-btn').disabled = false;
+  document.getElementById('stop-btn').style.display = 'flex';
+  document.getElementById('progress-bar').style.display = 'block';
+
+  const totalPages = Math.ceil(icons.length / ICONS_PER_PAGE);
+
+  // Persistent canvas — accumulates ALL drawings across all icons on current page
+  let persistCanvas = document.createElement('canvas');
+  persistCanvas.width = CW; persistCanvas.height = CH;
+  let pCtx = persistCanvas.getContext('2d');
+
+  let currentPage = -1;
+
+  for(let i = 0; i < icons.length; i++) {
+    if(stopFlag) break;
+
+    const pageIdx = Math.floor(i / ICONS_PER_PAGE);
+    const slotInPage = i % ICONS_PER_PAGE;
+
+    // New page — clear persistent canvas and show white
+    if(pageIdx !== currentPage) {
+      currentPage = pageIdx;
+      pCtx.fillStyle = '#fff';
+      pCtx.fillRect(0, 0, CW, CH);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, CW, CH);
+
+      // Brief pause between pages (except first)
+      if(pageIdx > 0) await pause(800);
+    }
+
+    // Update UI
+    updateIconStrip(i);
+    showStatus(`Icon ${i+1} of ${icons.length} · Page ${pageIdx+1} of ${totalPages}`);
+    showProc(`Analyzing icon ${i+1}…`);
+    document.getElementById('progress-fill').style.width = '0%';
+
+    const cell = getCellRect(slotInPage);
+    const points = await extractPoints(icons[i].canvas, cell);
+
+    hideProc();
+
+    if(!points.length) continue;
+    if(stopFlag) break;
+
+    // ── Draw sketch animation ──
+    const durationMs = settings.speed * 1000;
+    let startTime = null;
+    let prevIdx = 0;
+
+    await new Promise(resolve => {
+      function frame(ts) {
+        if(stopFlag) { resolve(); return; }
+        if(!startTime) startTime = ts;
+        const t = Math.min((ts - startTime) / durationMs, 1);
+
+        document.getElementById('progress-fill').style.width = (t * 100) + '%';
+
+        const targetIdx = Math.floor(t * points.length);
+        const fromIdx = prevIdx > targetIdx ? 0 : prevIdx;
+        const batch = targetIdx - fromIdx;
+
+        if(batch > 0) {
+          let lastPt = null;
+
+          // Draw batch of dots onto persistent canvas
+          for(let k = 0; k < batch; k++) {
+            const pt = points[fromIdx + k];
+            if(!pt) continue;
+            lastPt = pt;
+
+            // Use original color if dark enough, else black
+            const brightness = pt.r*0.299 + pt.g*0.587 + pt.b*0.114;
+            if(brightness < 30) {
+              pCtx.fillStyle = '#111';
+            } else {
+              pCtx.fillStyle = `rgb(${pt.r},${pt.g},${pt.b})`;
+            }
+
+            pCtx.beginPath();
+            pCtx.arc(pt.x, pt.y, settings.thick, 0, Math.PI*2);
+            pCtx.fill();
+          }
+
+          // Composite persistent onto output
+          ctx.drawImage(persistCanvas, 0, 0);
+
+          // Draw hand at last point
+          if(handImg.complete && lastPt) {
+            const hW = 160;
+            const hH = (handImg.height / handImg.width) * hW;
+            const hX = lastPt.x + (-10/100) * hW;
+            const hY = lastPt.y + (-90/100) * hH;
+            ctx.drawImage(handImg, hX, hY, hW, hH);
+          }
+
+          // Page number
+          const totalPgs = Math.ceil(icons.length / ICONS_PER_PAGE);
+          ctx.fillStyle = 'rgba(148,163,184,0.6)';
+          ctx.font = 'bold 16px system-ui';
+          ctx.textAlign = 'center';
+          ctx.fillText(`Page ${pageIdx+1} of ${totalPgs}`, CW/2, CH-14);
+        }
+
+        prevIdx = targetIdx;
+
+        if(t < 1) {
+          animRaf = requestAnimationFrame(frame);
+        } else {
+          // Finalize — draw clean without hand
+          ctx.drawImage(persistCanvas, 0, 0);
+          ctx.fillStyle = 'rgba(148,163,184,0.6)';
+          ctx.font = 'bold 16px system-ui';
+          ctx.textAlign = 'center';
+          ctx.fillText(`Page ${pageIdx+1} of ${Math.ceil(icons.length / ICONS_PER_PAGE)}`, CW/2, CH-14);
+          animRaf = null;
+          setTimeout(resolve, 300);
+        }
+      }
+      animRaf = requestAnimationFrame(frame);
+    });
+  }
+
+  // Done
+  isAnimating = false;
+  stopFlag = false;
+  document.getElementById('stop-btn').style.display = 'none';
+  document.getElementById('progress-bar').style.display = 'none';
+  document.getElementById('play-btn').textContent = '▶ Sketch Again';
+  showStatus('✅ Done! All icons sketched.');
+  updateIconStrip(-1);
+}
+
+function stopAnim() {
+  stopFlag = true;
+  if(animRaf) cancelAnimationFrame(animRaf);
+  animRaf = null;
+  isAnimating = false;
+  document.getElementById('stop-btn').style.display = 'none';
+  document.getElementById('progress-bar').style.display = 'none';
+  document.getElementById('play-btn').textContent = '▶ Sketch All Icons';
+  hideProc();
+  showStatus('⏹ Stopped');
+}
+
+// ── Utils ─────────────────────────────────────────────────
+function pause(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function showStatus(msg) {
+  const el = document.getElementById('status-badge');
+  el.style.display = 'block';
+  el.textContent = msg;
+}
+
+function showProc(msg) {
+  document.getElementById('proc-text').textContent = msg;
+  document.getElementById('proc-overlay').style.display = 'flex';
+}
+function hideProc() {
+  document.getElementById('proc-overlay').style.display = 'none';
+}
+</script>
+</body>
+</html>
