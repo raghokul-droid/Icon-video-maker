@@ -725,9 +725,15 @@ function extractPoints(iconCanvas, cellRect) {
     const data = imgData.data;
     const W = Math.ceil(dw), H = Math.ceil(dh);
     const STEP = 2;
-    const tl = [], tr = [], bl = [], br = [];
     const qW = W / 2, qH = H / 2;
     const thresh = settings.thresh;
+    // Pixels darker than this are treated as ink/linework (the "sketch").
+    // Everything else that's still foreground is treated as color fill,
+    // drawn in a second pass after the outline is complete.
+    const outlineThresh = Math.min(thresh, 100);
+
+    const outlineQ = { tl: [], tr: [], bl: [], br: [] };
+    const fillQ    = { tl: [], tr: [], bl: [], br: [] };
 
     for(let y = 0; y < H; y += STEP) {
       for(let x = 0; x < W; x += STEP) {
@@ -737,8 +743,9 @@ function extractPoints(iconCanvas, cellRect) {
           const bright = r*0.299 + g*0.587 + b*0.114;
           if(bright < thresh) {
             const gx = dx + x, gy = dy + y;
-            if(y < qH) { x < qW ? tl.push({x:gx,y:gy,r,g,b}) : tr.push({x:gx,y:gy,r,g,b}); }
-            else { x < qW ? bl.push({x:gx,y:gy,r,g,b}) : br.push({x:gx,y:gy,r,g,b}); }
+            const quad = (y < qH) ? (x < qW ? 'tl' : 'tr') : (x < qW ? 'bl' : 'br');
+            const bucket = bright < outlineThresh ? outlineQ : fillQ;
+            bucket[quad].push({x:gx,y:gy,r,g,b});
           }
         }
       }
@@ -758,7 +765,10 @@ function extractPoints(iconCanvas, cellRect) {
       return pts;
     };
 
-    resolve([...sort(tl), ...sort(tr), ...sort(bl), ...sort(br)]);
+    const outline = [...sort(outlineQ.tl), ...sort(outlineQ.tr), ...sort(outlineQ.bl), ...sort(outlineQ.br)];
+    const fill    = [...sort(fillQ.tl), ...sort(fillQ.tr), ...sort(fillQ.bl), ...sort(fillQ.br)];
+
+    resolve({ outline, fill });
   });
 }
 
@@ -782,6 +792,90 @@ const handImg = new Image();
 handImg.src = 'data:image/svg+xml;base64,' + btoa(HAND_SVG);
 
 // ── Animation ─────────────────────────────────────────────
+// Animates one batch of points (either the outline pass or the fill pass)
+// onto the persistent canvas, driving the hand cursor and progress bar.
+// startPct/endPct let the progress bar span just this phase's slice of
+// the overall per-icon progress.
+function animatePoints(points, durationMs, startPct, endPct, forceOutline, pageIdx, pCtx, persistCanvas) {
+  return new Promise(resolve => {
+    let startTime = null;
+    let prevIdx = 0;
+
+    function frame(ts) {
+      if(stopFlag) { resolve(); return; }
+      if(!startTime) startTime = ts;
+      const t = Math.min((ts - startTime) / durationMs, 1);
+
+      const pct = startPct + t * (endPct - startPct);
+      document.getElementById('progress-fill').style.width = pct + '%';
+
+      const targetIdx = Math.floor(t * points.length);
+      const fromIdx = prevIdx > targetIdx ? 0 : prevIdx;
+      const batch = targetIdx - fromIdx;
+
+      if(batch > 0) {
+        let lastPt = null;
+
+        // Draw batch of dots onto persistent canvas
+        for(let k = 0; k < batch; k++) {
+          const pt = points[fromIdx + k];
+          if(!pt) continue;
+          lastPt = pt;
+
+          if(forceOutline) {
+            // Outline phase — always dark ink, regardless of the icon's
+            // actual line color, so it reads as a pencil/pen sketch.
+            pCtx.fillStyle = '#1a1a1a';
+          } else {
+            // Fill phase — use the icon's real color
+            const brightness = pt.r*0.299 + pt.g*0.587 + pt.b*0.114;
+            pCtx.fillStyle = brightness < 30 ? '#111' : `rgb(${pt.r},${pt.g},${pt.b})`;
+          }
+
+          pCtx.beginPath();
+          pCtx.arc(pt.x, pt.y, settings.thick, 0, Math.PI*2);
+          pCtx.fill();
+        }
+
+        // Composite persistent onto output
+        ctx.drawImage(persistCanvas, 0, 0);
+
+        // Draw hand at last point
+        if(handImg.complete && lastPt) {
+          const hW = 160;
+          const hH = (handImg.height / handImg.width) * hW;
+          const hX = lastPt.x + (-10/100) * hW;
+          const hY = lastPt.y + (-90/100) * hH;
+          ctx.drawImage(handImg, hX, hY, hW, hH);
+        }
+
+        // Page number
+        const totalPgs = Math.ceil(icons.length / ICONS_PER_PAGE);
+        ctx.fillStyle = 'rgba(148,163,184,0.6)';
+        ctx.font = 'bold 16px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Page ${pageIdx+1} of ${totalPgs}`, CW/2, CH-14);
+      }
+
+      prevIdx = targetIdx;
+
+      if(t < 1) {
+        animRaf = requestAnimationFrame(frame);
+      } else {
+        // Finalize — draw clean without hand
+        ctx.drawImage(persistCanvas, 0, 0);
+        ctx.fillStyle = 'rgba(148,163,184,0.6)';
+        ctx.font = 'bold 16px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Page ${pageIdx+1} of ${Math.ceil(icons.length / ICONS_PER_PAGE)}`, CW/2, CH-14);
+        animRaf = null;
+        resolve();
+      }
+    }
+    animRaf = requestAnimationFrame(frame);
+  });
+}
+
 async function playAnim() {
   if(!icons.length) return;
   if(isAnimating) {
@@ -830,89 +924,36 @@ async function playAnim() {
     document.getElementById('progress-fill').style.width = '0%';
 
     const cell = getCellRect(slotInPage);
-    const points = await extractPoints(icons[i].canvas, cell);
+    const { outline, fill } = await extractPoints(icons[i].canvas, cell);
 
     hideProc();
 
-    if(!points.length) continue;
+    const totalPts = outline.length + fill.length;
+    if(!totalPts) continue;
     if(stopFlag) break;
 
-    // ── Draw sketch animation ──
+    // Split the total time between the two phases proportional to how
+    // many points each has, so pacing feels natural regardless of icon shape.
     const durationMs = settings.speed * 1000;
-    let startTime = null;
-    let prevIdx = 0;
+    const outlineShare = outline.length / totalPts;
+    const outlineDur = outline.length ? Math.max(300, durationMs * outlineShare) : 0;
+    const fillDur = fill.length ? Math.max(300, durationMs - outlineDur) : 0;
 
-    await new Promise(resolve => {
-      function frame(ts) {
-        if(stopFlag) { resolve(); return; }
-        if(!startTime) startTime = ts;
-        const t = Math.min((ts - startTime) / durationMs, 1);
+    // Phase 1 — sketch the outline/linework in dark ink
+    if(outline.length) {
+      await animatePoints(outline, outlineDur, 0, outlineShare * 100, true, pageIdx, pCtx, persistCanvas);
+      if(stopFlag) break;
+      await pause(120); // brief beat before coloring starts
+    }
+    if(stopFlag) break;
 
-        document.getElementById('progress-fill').style.width = (t * 100) + '%';
+    // Phase 2 — color it in using the actual pixel colors
+    if(fill.length) {
+      await animatePoints(fill, fillDur, outlineShare * 100, 100, false, pageIdx, pCtx, persistCanvas);
+    }
+    if(stopFlag) break;
 
-        const targetIdx = Math.floor(t * points.length);
-        const fromIdx = prevIdx > targetIdx ? 0 : prevIdx;
-        const batch = targetIdx - fromIdx;
-
-        if(batch > 0) {
-          let lastPt = null;
-
-          // Draw batch of dots onto persistent canvas
-          for(let k = 0; k < batch; k++) {
-            const pt = points[fromIdx + k];
-            if(!pt) continue;
-            lastPt = pt;
-
-            // Use original color if dark enough, else black
-            const brightness = pt.r*0.299 + pt.g*0.587 + pt.b*0.114;
-            if(brightness < 30) {
-              pCtx.fillStyle = '#111';
-            } else {
-              pCtx.fillStyle = `rgb(${pt.r},${pt.g},${pt.b})`;
-            }
-
-            pCtx.beginPath();
-            pCtx.arc(pt.x, pt.y, settings.thick, 0, Math.PI*2);
-            pCtx.fill();
-          }
-
-          // Composite persistent onto output
-          ctx.drawImage(persistCanvas, 0, 0);
-
-          // Draw hand at last point
-          if(handImg.complete && lastPt) {
-            const hW = 160;
-            const hH = (handImg.height / handImg.width) * hW;
-            const hX = lastPt.x + (-10/100) * hW;
-            const hY = lastPt.y + (-90/100) * hH;
-            ctx.drawImage(handImg, hX, hY, hW, hH);
-          }
-
-          // Page number
-          const totalPgs = Math.ceil(icons.length / ICONS_PER_PAGE);
-          ctx.fillStyle = 'rgba(148,163,184,0.6)';
-          ctx.font = 'bold 16px system-ui';
-          ctx.textAlign = 'center';
-          ctx.fillText(`Page ${pageIdx+1} of ${totalPgs}`, CW/2, CH-14);
-        }
-
-        prevIdx = targetIdx;
-
-        if(t < 1) {
-          animRaf = requestAnimationFrame(frame);
-        } else {
-          // Finalize — draw clean without hand
-          ctx.drawImage(persistCanvas, 0, 0);
-          ctx.fillStyle = 'rgba(148,163,184,0.6)';
-          ctx.font = 'bold 16px system-ui';
-          ctx.textAlign = 'center';
-          ctx.fillText(`Page ${pageIdx+1} of ${Math.ceil(icons.length / ICONS_PER_PAGE)}`, CW/2, CH-14);
-          animRaf = null;
-          setTimeout(resolve, 300);
-        }
-      }
-      animRaf = requestAnimationFrame(frame);
-    });
+    await pause(300); // brief hold on the finished icon before moving on
   }
 
   // Done
@@ -956,5 +997,3 @@ function hideProc() {
 </script>
 </body>
 </html>
-
-  
