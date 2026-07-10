@@ -1,5 +1,4 @@
-
-       <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -1050,6 +1049,26 @@ async function playAnim() {
     }
     if(stopFlag) break;
 
+    // Final reinforcement — the color pass can slightly overlap the
+    // outline (dot radius/anti-aliasing near edges), tinting what should
+    // be pure black linework. Redraw every outline point one more time,
+    // instantly, on top of everything so the line always matches the
+    // source image exactly.
+    if(outline.length) {
+      pCtx.fillStyle = '#1a1a1a';
+      for(const pt of outline) {
+        pCtx.beginPath();
+        pCtx.arc(pt.x, pt.y, settings.thick, 0, Math.PI*2);
+        pCtx.fill();
+      }
+      ctx.drawImage(persistCanvas, 0, 0);
+      const totalPgs = Math.ceil(icons.length / ICONS_PER_PAGE);
+      ctx.fillStyle = 'rgba(148,163,184,0.6)';
+      ctx.font = 'bold 16px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Page ${pageIdx+1} of ${totalPgs}`, CW/2, CH-14);
+    }
+
     await pause(300); // brief hold on the finished icon before moving on
   }
 
@@ -1094,4 +1113,3 @@ function hideProc() {
 </script>
 </body>
 </html>
- 
