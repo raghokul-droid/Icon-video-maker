@@ -1,4 +1,5 @@
-<!DOCTYPE html>
+
+       <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -491,6 +492,16 @@ function detectIcons(srcCanvas, W, H) {
     fg[i] = isWhite ? 0 : 1;
   }
 
+  // Some icon sheets are ruled — thin black grid lines drawn between every
+  // cell. Those lines physically connect every icon into one giant blob,
+  // which breaks connected-component detection entirely. But a ruled line
+  // is easy to spot on its own: it's a row (or column) that's foreground
+  // across almost its ENTIRE width (or height) — something no real icon
+  // ever does. Check for that first, and if found, use the lines
+  // themselves as exact cell boundaries instead of relying on blobs.
+  const ruledBoxes = detectRuledGrid(fg, sw, sh, W, H, scale);
+  if(ruledBoxes) return ruledBoxes;
+
   // Dilate slightly so icons with internal gaps (rings, colons, dashed
   // outlines) are treated as a single blob. Radius is scaled to image size
   // so it works consistently regardless of source resolution.
@@ -586,6 +597,92 @@ function dilate(mask, w, h, radius) {
     }
   }
   return out;
+}
+
+// Detects an explicit ruled grid (thin lines drawn between every cell) by
+// finding rows/columns that are foreground across almost their entire
+// width/height. Returns an array of {x,y,w,h} boxes in full-resolution
+// coordinates, already in correct reading order — or null if no ruled
+// grid is present (so the caller should fall back to blob detection).
+function detectRuledGrid(fg, sw, sh, W, H, scale) {
+  const LINE_THRESH = 0.85;
+
+  const rowFrac = new Float32Array(sh);
+  for(let y = 0; y < sh; y++) {
+    let sum = 0;
+    const off = y * sw;
+    for(let x = 0; x < sw; x++) sum += fg[off + x];
+    rowFrac[y] = sum / sw;
+  }
+  const colFrac = new Float32Array(sw);
+  for(let x = 0; x < sw; x++) {
+    let sum = 0;
+    for(let y = 0; y < sh; y++) sum += fg[y * sw + x];
+    colFrac[x] = sum / sh;
+  }
+
+  const groupLines = frac => {
+    const idxs = [];
+    for(let i = 0; i < frac.length; i++) if(frac[i] > LINE_THRESH) idxs.push(i);
+    if(!idxs.length) return [];
+    const groups = [[idxs[0]]];
+    for(let i = 1; i < idxs.length; i++) {
+      const lastGroup = groups[groups.length - 1];
+      if(idxs[i] - lastGroup[lastGroup.length - 1] <= 2) {
+        lastGroup.push(idxs[i]);
+      } else {
+        groups.push([idxs[i]]);
+      }
+    }
+    return groups.map(g => Math.round(g.reduce((a, b) => a + b, 0) / g.length));
+  };
+
+  const rowSeps = groupLines(rowFrac);
+  const colSeps = groupLines(colFrac);
+
+  // Need at least one internal line in each direction to call this a ruled
+  // grid — otherwise it's likely just a stray dark region in a real icon,
+  // and we should fall back to blob detection instead.
+  if(rowSeps.length < 1 || colSeps.length < 1) return null;
+
+  const rowBounds = [0, ...rowSeps, sh];
+  const colBounds = [0, ...colSeps, sw];
+  const rows = rowBounds.length - 1;
+  const cols = colBounds.length - 1;
+  if(rows < 2 || cols < 2 || rows * cols > 1000) return null;
+
+  const pad = Math.max(2, Math.round(sw / 250)); // inset to crop the ruling line itself out
+  const minCellFg = 15; // skip empty template cells with no icon drawn yet
+
+  const boxes = [];
+  for(let r = 0; r < rows; r++) {
+    for(let c = 0; c < cols; c++) {
+      const sy0 = rowBounds[r], sy1 = rowBounds[r+1];
+      const sx0 = colBounds[c], sx1 = colBounds[c+1];
+
+      // Check the cell actually has content (skip blank template cells)
+      const iy0 = Math.min(sh-1, sy0 + pad), iy1 = Math.max(iy0+1, sy1 - pad);
+      const ix0 = Math.min(sw-1, sx0 + pad), ix1 = Math.max(ix0+1, sx1 - pad);
+      let fgCount = 0;
+      for(let y = iy0; y < iy1; y++) {
+        const off = y * sw;
+        for(let x = ix0; x < ix1; x++) fgCount += fg[off + x];
+      }
+      if(fgCount < minCellFg) continue;
+
+      const x = Math.max(0, Math.floor(sx0 / scale) + pad);
+      const y = Math.max(0, Math.floor(sy0 / scale) + pad);
+      const x2 = Math.min(W, Math.ceil(sx1 / scale) - pad);
+      const y2 = Math.min(H, Math.ceil(sy1 / scale) - pad);
+      if(x2 - x > 4 && y2 - y > 4) {
+        boxes.push({ x, y, w: x2 - x, h: y2 - y });
+      }
+    }
+  }
+
+  // Boxes were built row-by-row, column-by-column, so they're already in
+  // correct reading order — no need to re-cluster.
+  return boxes.length ? boxes : null;
 }
 
 // Groups detected boxes into rows by y-position, then sorts each row
@@ -997,3 +1094,4 @@ function hideProc() {
 </script>
 </body>
 </html>
+ 
