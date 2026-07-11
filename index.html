@@ -187,6 +187,28 @@ body {
   align-items: center;
   flex-wrap: wrap;
 }
+
+/* Layout picker row */
+#layout-row {
+  display: flex;
+  gap: 8px;
+}
+.layout-btn {
+  flex: 1;
+  padding: 8px 6px;
+  background: rgba(30,41,59,0.8);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 10px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.layout-btn.active {
+  background: rgba(99,102,241,0.18);
+  border-color: #6366f1;
+  color: #c7d2fe;
+}
 .setting-item {
   display: flex;
   align-items: center;
@@ -331,10 +353,16 @@ body {
 <div id="bottom-bar">
   <div id="info-row">
     <div id="info-text">0 icons · 0 pages</div>
-    <div>6 icons per page</div>
+    <div id="per-page-text">6 icons per page</div>
   </div>
 
   <div id="icon-strip"></div>
+
+  <div id="layout-row">
+    <button class="layout-btn active" data-layout="6grid" onclick="setLayout('6grid')">▦ 6 · Grid</button>
+    <button class="layout-btn" data-layout="4grid" onclick="setLayout('4grid')">▦ 4 · Grid</button>
+    <button class="layout-btn" data-layout="6circle" onclick="setLayout('6circle')">◎ 6 · Circle</button>
+  </div>
 
   <div id="settings-row">
     <div class="setting-item">
@@ -381,21 +409,59 @@ let isAnimating = false;
 let stopFlag = false;
 let animRaf = null;
 
-const ICONS_PER_PAGE = 6;
-const COLS = 3, ROWS = 2; // 3x2 grid per page (layout for the OUTPUT animation, not detection)
-const PAD = 40, GAP = 24;
-const CELL_W = Math.floor((CW - PAD*2 - GAP*(COLS-1)) / COLS);
-const CELL_H = Math.floor((CH - PAD*2 - GAP*(ROWS-1)) / ROWS);
+let layoutMode = '6grid'; // '6grid' | '4grid' | '6circle'
 
+function getIconsPerPage() {
+  return layoutMode === '4grid' ? 4 : 6;
+}
+
+function setLayout(mode) {
+  if(isAnimating) return; // don't allow changes mid-playback
+  layoutMode = mode;
+  document.querySelectorAll('.layout-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.layout === mode);
+  });
+  document.getElementById('per-page-text').textContent = `${getIconsPerPage()} icons per page`;
+  if(icons.length) {
+    updateInfo();
+    drawPagePreview(0);
+  }
+}
+
+// Returns the {x,y,w,h} rect for a given slot index within a page, based
+// on the currently selected layout.
 function getCellRect(slotInPage) {
+  if(layoutMode === '4grid') {
+    const COLS = 2, ROWS = 2, PAD = 60, GAP = 30;
+    const CELL_W = Math.floor((CW - PAD*2 - GAP*(COLS-1)) / COLS);
+    const CELL_H = Math.floor((CH - PAD*2 - GAP*(ROWS-1)) / ROWS);
+    const row = Math.floor(slotInPage / COLS);
+    const col = slotInPage % COLS;
+    return { x: PAD + col*(CELL_W+GAP), y: PAD + row*(CELL_H+GAP), w: CELL_W, h: CELL_H };
+  }
+
+  if(layoutMode === '6circle') {
+    // Slot 0 sits in the center; slots 1-5 are arranged around it in a
+    // circle, evenly spaced starting from the top.
+    const cx = CW / 2, cy = CH / 2 - 10;
+    const centerSize = 300, satSize = 220, radius = 340;
+    if(slotInPage === 0) {
+      return { x: cx - centerSize/2, y: cy - centerSize/2, w: centerSize, h: centerSize };
+    }
+    const i = slotInPage - 1; // 0..4
+    const angle = (-90 + i * 72) * Math.PI / 180;
+    const x = cx + radius * Math.cos(angle);
+    const y = cy + radius * Math.sin(angle);
+    return { x: x - satSize/2, y: y - satSize/2, w: satSize, h: satSize };
+  }
+
+  // Default: '6grid' — original 3x2 grid
+  const COLS = 3, ROWS = 2, PAD = 40, GAP = 24;
+  const CELL_W = Math.floor((CW - PAD*2 - GAP*(COLS-1)) / COLS);
+  const CELL_H = Math.floor((CH - PAD*2 - GAP*(ROWS-1)) / ROWS);
   const row = Math.floor(slotInPage / COLS);
   const col = slotInPage % COLS;
-  return {
-    x: PAD + col * (CELL_W + GAP),
-    y: PAD + row * (CELL_H + GAP),
-    w: CELL_W,
-    h: CELL_H
-  };
+  return { x: PAD + col*(CELL_W+GAP), y: PAD + row*(CELL_H+GAP), w: CELL_W, h: CELL_H };
 }
 
 // ── Slider ───────────────────────────────────────────────
@@ -759,8 +825,8 @@ function drawPagePreview(pageIdx) {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, CW, CH);
 
-  const start = pageIdx * ICONS_PER_PAGE;
-  const end = Math.min(start + ICONS_PER_PAGE, icons.length);
+  const start = pageIdx * getIconsPerPage();
+  const end = Math.min(start + getIconsPerPage(), icons.length);
 
   for(let i = start; i < end; i++) {
     const slot = i - start;
@@ -784,7 +850,7 @@ function drawPagePreview(pageIdx) {
   }
 
   // Page indicator
-  const totalPages = Math.ceil(icons.length / ICONS_PER_PAGE);
+  const totalPages = Math.ceil(icons.length / getIconsPerPage());
   ctx.fillStyle = '#94a3b8';
   ctx.font = 'bold 18px system-ui';
   ctx.textAlign = 'center';
@@ -793,7 +859,7 @@ function drawPagePreview(pageIdx) {
 
 function updateInfo() {
   const total = icons.length;
-  const pages = Math.ceil(total / ICONS_PER_PAGE);
+  const pages = Math.ceil(total / getIconsPerPage());
   document.getElementById('info-text').textContent = `${total} icons detected · ${pages} pages`;
 }
 
@@ -897,7 +963,15 @@ function extractPoints(iconCanvas, cellRect) {
           if(bright < thresh) {
             const gx = dx + x, gy = dy + y;
             const quad = (y < qH) ? (x < qW ? 'tl' : 'tr') : (x < qW ? 'bl' : 'br');
-            const bucket = bright < outlineThresh ? outlineQ : fillQ;
+            // Luminance alone can't tell black ink apart from saturated
+            // dark colors — pure red has low luminance too, so it would
+            // otherwise get misclassified as "outline" and forced black.
+            // Chroma (how far the color is from gray) fixes this: a true
+            // black/gray line has near-zero chroma even when dark, while
+            // a dark red/blue/green has high chroma despite low brightness.
+            const chroma = Math.max(r,g,b) - Math.min(r,g,b);
+            const isOutline = bright < outlineThresh && chroma < 30;
+            const bucket = isOutline ? outlineQ : fillQ;
             bucket[quad].push({x:gx,y:gy,r,g,b});
           }
         }
@@ -1003,7 +1077,7 @@ function animatePoints(points, durationMs, startPct, endPct, forceOutline, pageI
         }
 
         // Page number
-        const totalPgs = Math.ceil(icons.length / ICONS_PER_PAGE);
+        const totalPgs = Math.ceil(icons.length / getIconsPerPage());
         ctx.fillStyle = 'rgba(148,163,184,0.6)';
         ctx.font = 'bold 16px system-ui';
         ctx.textAlign = 'center';
@@ -1020,7 +1094,7 @@ function animatePoints(points, durationMs, startPct, endPct, forceOutline, pageI
         ctx.fillStyle = 'rgba(148,163,184,0.6)';
         ctx.font = 'bold 16px system-ui';
         ctx.textAlign = 'center';
-        ctx.fillText(`Page ${pageIdx+1} of ${Math.ceil(icons.length / ICONS_PER_PAGE)}`, CW/2, CH-14);
+        ctx.fillText(`Page ${pageIdx+1} of ${Math.ceil(icons.length / getIconsPerPage())}`, CW/2, CH-14);
         animRaf = null;
         resolve();
       }
@@ -1043,7 +1117,7 @@ async function playAnim() {
   document.getElementById('stop-btn').style.display = 'flex';
   document.getElementById('progress-bar').style.display = 'block';
 
-  const totalPages = Math.ceil(icons.length / ICONS_PER_PAGE);
+  const totalPages = Math.ceil(icons.length / getIconsPerPage());
 
   // Persistent canvas — accumulates ALL drawings across all icons on current page
   let persistCanvas = document.createElement('canvas');
@@ -1055,8 +1129,8 @@ async function playAnim() {
   for(let i = 0; i < icons.length; i++) {
     if(stopFlag) break;
 
-    const pageIdx = Math.floor(i / ICONS_PER_PAGE);
-    const slotInPage = i % ICONS_PER_PAGE;
+    const pageIdx = Math.floor(i / getIconsPerPage());
+    const slotInPage = i % getIconsPerPage();
 
     // New page — clear persistent canvas and show white
     if(pageIdx !== currentPage) {
@@ -1119,7 +1193,7 @@ async function playAnim() {
         pCtx.fill();
       }
       ctx.drawImage(persistCanvas, 0, 0);
-      const totalPgs = Math.ceil(icons.length / ICONS_PER_PAGE);
+      const totalPgs = Math.ceil(icons.length / getIconsPerPage());
       ctx.fillStyle = 'rgba(148,163,184,0.6)';
       ctx.font = 'bold 16px system-ui';
       ctx.textAlign = 'center';
@@ -1170,3 +1244,5 @@ function hideProc() {
 </script>
 </body>
 </html>
+
+        
