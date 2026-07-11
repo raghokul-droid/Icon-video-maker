@@ -270,6 +270,29 @@ body {
 }
 .icon-thumb.current { border-color: #6366f1; box-shadow: 0 0 8px rgba(99,102,241,0.5); }
 .icon-thumb.done { border-color: #34d399; opacity: 0.7; }
+
+/* Delete-toggle wrapper for icon strip thumbnails (tap once to flag, tap
+   again to remove — doesn't affect any of the animation/detection code) */
+.icon-thumb-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  cursor: pointer;
+}
+.icon-thumb-wrap .icon-thumb { width: 100%; height: 100%; }
+.icon-thumb-wrap .del-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(220,38,38,0.72);
+  border-radius: 8px;
+  font-size: 18px;
+  color: white;
+}
+.icon-thumb-wrap.pending .del-overlay { display: flex; }
+.icon-thumb-wrap.pending .icon-thumb { opacity: 0.35; }
 </style>
 </head>
 <body>
@@ -351,7 +374,8 @@ canvas.width = CW; canvas.height = CH;
 ctx.fillStyle = '#fff';
 ctx.fillRect(0, 0, CW, CH);
 
-let icons = [];        // Array of {canvas, dataURL} per detected icon
+let icons = [];        // Array of {id, canvas, dataURL} per detected icon
+let pendingDeleteIds = new Set(); // ids flagged for delete (tap once to flag, tap again to remove)
 let settings = { thick: 2, thresh: 160, speed: 4 };
 let isAnimating = false;
 let stopFlag = false;
@@ -444,6 +468,8 @@ function processImage(src) {
     showProc(`Found ${boxes.length} icons — extracting…`);
 
     icons = [];
+    pendingDeleteIds = new Set();
+    let nextIconId = 0;
     for(const box of boxes) {
       const ic = document.createElement('canvas');
       ic.width = box.w; ic.height = box.h;
@@ -451,7 +477,7 @@ function processImage(src) {
       iCtx.fillStyle = '#fff';
       iCtx.fillRect(0, 0, box.w, box.h);
       iCtx.drawImage(img, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
-      icons.push({ canvas: ic, dataURL: ic.toDataURL() });
+      icons.push({ id: nextIconId++, canvas: ic, dataURL: ic.toDataURL() });
     }
 
     hideProc();
@@ -775,12 +801,43 @@ function renderIconStrip() {
   const strip = document.getElementById('icon-strip');
   strip.innerHTML = '';
   icons.forEach((ic, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'icon-thumb-wrap' + (pendingDeleteIds.has(ic.id) ? ' pending' : '');
+    wrap.onclick = () => toggleDeleteIcon(ic.id);
+
     const img = document.createElement('img');
     img.src = ic.dataURL;
     img.className = 'icon-thumb';
     img.title = `Icon ${i+1}`;
-    strip.appendChild(img);
+    wrap.appendChild(img);
+
+    const del = document.createElement('div');
+    del.className = 'del-overlay';
+    del.textContent = '🗑️';
+    wrap.appendChild(del);
+
+    strip.appendChild(wrap);
   });
+}
+
+// Tap once to flag an icon for removal (shows a trash overlay), tap again
+// on the same icon to actually remove it from the sketch queue. Uses each
+// icon's stable id (not array index) so flags stay correct even as other
+// icons are deleted and indices shift.
+function toggleDeleteIcon(id) {
+  if(isAnimating) return; // don't allow edits mid-playback
+
+  if(pendingDeleteIds.has(id)) {
+    icons = icons.filter(ic => ic.id !== id);
+    pendingDeleteIds.delete(id);
+    renderIconStrip();
+    updateInfo();
+    document.getElementById('play-btn').disabled = icons.length === 0;
+    if(icons.length) drawPagePreview(0);
+  } else {
+    pendingDeleteIds.add(id);
+    renderIconStrip();
+  }
 }
 
 function updateIconStrip(currentIdx) {
