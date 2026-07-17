@@ -180,6 +180,65 @@ body {
 }
 #info-row span { color: #a5b4fc; }
 
+/* Auto grid-suggestion row */
+#grid-suggest-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: #fbbf24;
+  font-weight: 600;
+  background: rgba(251,191,36,0.08);
+  border: 1px solid rgba(251,191,36,0.3);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+#grid-suggest-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.grid-suggest-btn {
+  padding: 6px 12px;
+  background: rgba(251,191,36,0.15);
+  border: 1px solid rgba(251,191,36,0.5);
+  border-radius: 8px;
+  color: #fde68a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Manual grid override row */
+#manual-grid-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+}
+#manual-grid-row input[type=number] {
+  width: 44px;
+  padding: 5px 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(99,102,241,0.3);
+  background: #0f172a;
+  color: #f1f5f9;
+  font-size: 12px;
+  text-align: center;
+}
+#manual-split-btn {
+  padding: 5px 12px;
+  background: rgba(99,102,241,0.2);
+  border: 1px solid #6366f1;
+  border-radius: 6px;
+  color: #c7d2fe;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 /* Settings row */
 #settings-row {
   display: flex;
@@ -356,6 +415,26 @@ body {
     <div id="per-page-text">6 icons per page</div>
   </div>
 
+  <!-- Auto-suggested grid options — shown only when detection looks
+       unreliable (very few icons found, or one giant merged blob).
+       Computed from the image's own shape, so the user doesn't have to
+       guess the right columns x rows themselves. -->
+  <div id="grid-suggest-row" style="display:none;">
+    <span>Detection looks off — did you mean:</span>
+    <div id="grid-suggest-btns"></div>
+  </div>
+
+  <!-- Manual grid override: for sheets where auto-detection gets confused
+       (merged blobs, partial ruling lines, etc.), the user can force an
+       even split into a specific columns x rows grid instead. -->
+  <div id="manual-grid-row">
+    <span>Or force your own grid:</span>
+    <input type="number" id="manual-cols" min="1" max="30" placeholder="cols"/>
+    <span>×</span>
+    <input type="number" id="manual-rows" min="1" max="30" placeholder="rows"/>
+    <button id="manual-split-btn" onclick="applyManualGrid()">Split</button>
+  </div>
+
   <div id="icon-strip"></div>
 
   <div id="layout-row">
@@ -404,6 +483,7 @@ ctx.fillRect(0, 0, CW, CH);
 
 let icons = [];        // Array of {id, canvas, dataURL} per detected icon
 let pendingDeleteIds = new Set(); // ids flagged for delete (tap once to flag, tap again to remove)
+let currentImg = null; // the currently loaded full-resolution image (kept for manual grid override)
 let settings = { thick: 2, thresh: 160, speed: 4 };
 let isAnimating = false;
 let stopFlag = false;
@@ -514,6 +594,9 @@ function processImage(src) {
   showProc('Analyzing image…');
   const img = new Image();
   img.onload = () => {
+    currentImg = img; // keep the full-res image around for the manual grid override
+    hideGridSuggestions();
+
     const tmp = document.createElement('canvas');
     tmp.width = img.width; tmp.height = img.height;
     const tCtx = tmp.getContext('2d');
@@ -525,9 +608,23 @@ function processImage(src) {
 
     const boxes = detectIcons(tCtx.canvas, img.width, img.height);
 
+    // Detection is unreliable if it found suspiciously few pieces, or if
+    // one piece dominates the whole image (a sign several icons merged
+    // into a single blob — usually caused by connecting lines/gradients).
+    const totalArea = img.width * img.height;
+    const maxBoxArea = boxes.reduce((m, b) => Math.max(m, b.w * b.h), 0);
+    const lowConfidence = boxes.length <= 6 || (maxBoxArea / totalArea) > 0.3;
+
     if(!boxes.length) {
       hideProc();
-      alert('No icons could be detected in this image. Try an image with clearer separation between icons.');
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('bottom-bar').style.display = 'flex';
+      icons = [];
+      pendingDeleteIds = new Set();
+      renderIconStrip();
+      updateInfo();
+      document.getElementById('play-btn').disabled = true;
+      showGridSuggestions(img.width, img.height);
       return;
     }
 
@@ -553,9 +650,128 @@ function processImage(src) {
     updateInfo();
     drawPagePreview(0);
     document.getElementById('play-btn').disabled = false;
+
+    if(lowConfidence) showGridSuggestions(img.width, img.height);
   };
   img.onerror = () => { hideProc(); alert('Could not load image.'); };
   img.src = src;
+}
+
+// Computes a handful of plausible columns x rows grids from the image's
+// own aspect ratio (icons are typically roughly square, so a good grid
+// is one where W/cols ≈ H/rows), and shows them as tap-to-apply buttons.
+// This means the user doesn't have to know or guess the sheet's actual
+// grid size themselves — the app proposes likely candidates instead.
+function suggestGridCandidates(W, H) {
+  const candidates = [];
+  for(let cols = 2; cols <= 10; cols++) {
+    for(let rows = 2; rows <= 12; rows++) {
+      const total = cols * rows;
+      if(total < 4 || total > 80) continue;
+      const cellAspect = (W / cols) / (H / rows);
+      const score = Math.abs(Math.log(cellAspect)); // 0 = perfectly square cells
+      candidates.push({ cols, rows, total, score });
+    }
+  }
+  candidates.sort((a, b) => a.score - b.score || a.total - b.total);
+
+  // NOTE: this "roughly square cells" assumption is just a best guess —
+  // some sheets use deliberately wide/tall cells (extra padding, captions,
+  // etc.) where the true grid won't score well here at all. That's exactly
+  // why the free-entry columns × rows box always stays available too —
+  // if you can see the grid by eye, typing it in directly is the sure way.
+  const out = [];
+  const seenTotals = new Set();
+  for(const c of candidates) {
+    // Prefer a spread of different total counts rather than many near-
+    // identical grids (e.g. 4x6 and 6x4 scored the same) cluttering the row
+    if(seenTotals.has(c.total)) continue;
+    seenTotals.add(c.total);
+    out.push(c);
+    if(out.length >= 8) break;
+  }
+  return out;
+}
+
+function showGridSuggestions(W, H) {
+  const candidates = suggestGridCandidates(W, H);
+  const btnRow = document.getElementById('grid-suggest-btns');
+  btnRow.innerHTML = '';
+  candidates.forEach(c => {
+    const btn = document.createElement('button');
+    btn.className = 'grid-suggest-btn';
+    btn.textContent = `${c.cols} × ${c.rows} (${c.total})`;
+    btn.onclick = () => {
+      sliceImageIntoGrid(currentImg, c.cols, c.rows);
+      hideGridSuggestions();
+    };
+    btnRow.appendChild(btn);
+  });
+  document.getElementById('grid-suggest-row').style.display = 'flex';
+}
+
+function hideGridSuggestions() {
+  document.getElementById('grid-suggest-row').style.display = 'none';
+}
+
+// Manual override for sheets where auto-detection struggles (merged
+// blobs, partial ruling lines, unusual spacing, etc.) — splits the
+// currently loaded image evenly into a specific columns x rows grid,
+// completely bypassing blob/line detection.
+function applyManualGrid() {
+  if(!currentImg) {
+    alert('Upload an image first.');
+    return;
+  }
+  const cols = parseInt(document.getElementById('manual-cols').value, 10);
+  const rows = parseInt(document.getElementById('manual-rows').value, 10);
+  if(!cols || !rows || cols < 1 || rows < 1) {
+    alert('Enter a valid number of columns and rows.');
+    return;
+  }
+  if(cols * rows > 400) {
+    alert('That grid is too large — try a smaller columns × rows.');
+    return;
+  }
+
+  showProc(`Splitting into ${cols}×${rows} grid…`);
+  // Let the overlay paint before doing the (synchronous) slicing work
+  setTimeout(() => {
+    sliceImageIntoGrid(currentImg, cols, rows);
+    hideGridSuggestions();
+    hideProc();
+  }, 30);
+}
+
+function sliceImageIntoGrid(img, cols, rows) {
+  const W = img.width, H = img.height;
+  const cellW = W / cols, cellH = H / rows;
+
+  icons = [];
+  pendingDeleteIds = new Set();
+  let nextIconId = 0;
+  for(let r = 0; r < rows; r++) {
+    for(let c = 0; c < cols; c++) {
+      const bx = Math.round(c * cellW), by = Math.round(r * cellH);
+      const bw = Math.round((c+1) * cellW) - bx;
+      const bh = Math.round((r+1) * cellH) - by;
+
+      const ic = document.createElement('canvas');
+      ic.width = bw; ic.height = bh;
+      const iCtx = ic.getContext('2d');
+      iCtx.fillStyle = '#fff';
+      iCtx.fillRect(0, 0, bw, bh);
+      iCtx.drawImage(img, bx, by, bw, bh, 0, 0, bw, bh);
+      icons.push({ id: nextIconId++, canvas: ic, dataURL: ic.toDataURL() });
+    }
+  }
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('bottom-bar').style.display = 'flex';
+  renderIconStrip();
+  updateInfo();
+  drawPagePreview(0);
+  document.getElementById('play-btn').disabled = icons.length === 0;
 }
 
 // Detect icons as connected components of non-white pixels.
@@ -1244,5 +1460,3 @@ function hideProc() {
 </script>
 </body>
 </html>
-
-        
