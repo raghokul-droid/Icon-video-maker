@@ -249,19 +249,20 @@ body {
 
 /* Layout picker row */
 #layout-row {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
 }
 .layout-btn {
-  flex: 1;
-  padding: 8px 6px;
+  padding: 8px 4px;
   background: rgba(30,41,59,0.8);
   border: 1px solid rgba(99,102,241,0.2);
   border-radius: 10px;
   color: #94a3b8;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
 }
 .layout-btn.active {
   background: rgba(99,102,241,0.18);
@@ -441,6 +442,10 @@ body {
     <button class="layout-btn active" data-layout="6grid" onclick="setLayout('6grid')">▦ 6 · Grid</button>
     <button class="layout-btn" data-layout="4grid" onclick="setLayout('4grid')">▦ 4 · Grid</button>
     <button class="layout-btn" data-layout="6circle" onclick="setLayout('6circle')">◎ 6 · Circle</button>
+    <button class="layout-btn" data-layout="3triangle" onclick="setLayout('3triangle')">▲ 3 · Tri</button>
+    <button class="layout-btn" data-layout="3vline" onclick="setLayout('3vline')">▮ 3 · Vert</button>
+    <button class="layout-btn" data-layout="3hline" onclick="setLayout('3hline')">▬ 3 · Horz</button>
+    <button class="layout-btn" data-layout="4diamond" onclick="setLayout('4diamond')">◆ 4 · Diamond</button>
   </div>
 
   <div id="settings-row">
@@ -448,16 +453,6 @@ body {
       Thickness
       <input type="range" id="sl-thick" min="1" max="5" step="0.5" value="2" oninput="updateSlider(this,'thick')"/>
       <span class="val-badge" id="v-thick">2</span>
-    </div>
-    <div class="setting-item">
-      Threshold
-      <input type="range" id="sl-thresh" min="50" max="230" value="160" oninput="updateSlider(this,'thresh')"/>
-      <span class="val-badge" id="v-thresh">160</span>
-    </div>
-    <div class="setting-item">
-      Speed
-      <input type="range" id="sl-speed" min="1" max="12" value="4" oninput="updateSlider(this,'speed')"/>
-      <span class="val-badge" id="v-speed">4s</span>
     </div>
   </div>
 
@@ -484,15 +479,19 @@ ctx.fillRect(0, 0, CW, CH);
 let icons = [];        // Array of {id, canvas, dataURL} per detected icon
 let pendingDeleteIds = new Set(); // ids flagged for delete (tap once to flag, tap again to remove)
 let currentImg = null; // the currently loaded full-resolution image (kept for manual grid override)
-let settings = { thick: 2, thresh: 160, speed: 4 };
+// Threshold and speed are fixed (no longer user-adjustable) to keep room
+// for the layout picker; thickness stays adjustable.
+let settings = { thick: 2, thresh: 230, speed: 2 };
 let isAnimating = false;
 let stopFlag = false;
 let animRaf = null;
 
-let layoutMode = '6grid'; // '6grid' | '4grid' | '6circle'
+let layoutMode = '6grid'; // '6grid' | '4grid' | '6circle' | '3triangle' | '3vline' | '3hline' | '4diamond'
 
 function getIconsPerPage() {
-  return layoutMode === '4grid' ? 4 : 6;
+  if(layoutMode === '4grid' || layoutMode === '4diamond') return 4;
+  if(layoutMode === '3triangle' || layoutMode === '3vline' || layoutMode === '3hline') return 3;
+  return 6;
 }
 
 function setLayout(mode) {
@@ -533,6 +532,48 @@ function getCellRect(slotInPage) {
     const x = cx + radius * Math.cos(angle);
     const y = cy + radius * Math.sin(angle);
     return { x: x - satSize/2, y: y - satSize/2, w: satSize, h: satSize };
+  }
+
+  if(layoutMode === '4diamond') {
+    // 4 cells at N / E / S / W around the center, like a compass rose.
+    const cx = CW / 2, cy = CH / 2 - 10;
+    const cellSize = 300, radius = 300;
+    const angle = (-90 + slotInPage * 90) * Math.PI / 180;
+    const x = cx + radius * Math.cos(angle);
+    const y = cy + radius * Math.sin(angle);
+    return { x: x - cellSize/2, y: y - cellSize/2, w: cellSize, h: cellSize };
+  }
+
+  if(layoutMode === '3triangle') {
+    // Slot 0 = apex (top center), slots 1-2 = base corners (bottom left/right)
+    const size = 340;
+    const positions = [
+      { x: (CW - size)/2, y: 60 },          // apex
+      { x: 120, y: 560 },                   // bottom-left
+      { x: CW - 120 - size, y: 560 }        // bottom-right
+    ];
+    const p = positions[slotInPage] || positions[0];
+    return { x: p.x, y: p.y, w: size, h: size };
+  }
+
+  if(layoutMode === '3vline') {
+    // 3 cells stacked vertically, centered horizontally
+    const ROWS = 3, PAD = 50, GAP = 40;
+    const CELL_H = Math.floor((CH - 90 - PAD*2 - GAP*(ROWS-1)) / ROWS); // 90px reserved for page label at bottom
+    const CELL_W = Math.min(CW - PAD*2, CELL_H);
+    const x = (CW - CELL_W) / 2;
+    const y = PAD + slotInPage * (CELL_H + GAP);
+    return { x, y, w: CELL_W, h: CELL_H };
+  }
+
+  if(layoutMode === '3hline') {
+    // 3 cells in a row, centered vertically
+    const COLS = 3, PAD = 40, GAP = 40;
+    const CELL_W = Math.floor((CW - PAD*2 - GAP*(COLS-1)) / COLS);
+    const CELL_H = Math.min(CH - 130, CELL_W); // leave room for page label at bottom
+    const y = (CH - 90 - CELL_H) / 2;
+    const x = PAD + slotInPage * (CELL_W + GAP);
+    return { x, y, w: CELL_W, h: CELL_H };
   }
 
   // Default: '6grid' — original 3x2 grid
