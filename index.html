@@ -32,6 +32,7 @@ body {
   background: linear-gradient(90deg,#818cf8,#34d399);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  flex: 1;
 }
 
 /* Canvas area */
@@ -87,20 +88,18 @@ body {
   backdrop-filter: blur(10px);
 }
 
-/* Stop button */
+/* Stop button — lives in the header, never over the canvas/artwork */
 #stop-btn {
-  position: absolute;
-  top: 14px; right: 14px;
-  padding: 7px 14px;
+  padding: 5px 12px;
   background: rgba(220,38,38,0.9);
   color: white;
   border: none;
   border-radius: 100px;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
   display: none;
-  z-index: 20;
+  flex-shrink: 0;
 }
 
 /* Processing overlay */
@@ -417,6 +416,7 @@ body {
 <div id="header">
   <span style="font-size:20px">✏️</span>
   <h1>Icon Sketch Maker</h1>
+  <button id="stop-btn" onclick="stopAnim()">⏹ Stop</button>
 </div>
 
 <div id="stage">
@@ -437,7 +437,6 @@ body {
 
   <div id="progress-bar"><div id="progress-fill"></div></div>
   <div id="status-badge"></div>
-  <button id="stop-btn" onclick="stopAnim()">⏹ Stop</button>
   <div id="proc-overlay">
     <div class="spinner"></div>
     <div id="proc-text">Detecting icons…</div>
@@ -556,9 +555,10 @@ function getCellRect(slotInPage) {
 
   if(layoutMode === '6circle') {
     // Slot 0 sits in the center; slots 1-5 are arranged around it in a
-    // circle, evenly spaced starting from the top.
+    // circle, evenly spaced starting from the top. Sizes/radius tuned so
+    // icons are large and closely spaced without overlapping.
     const cx = CW / 2, cy = CH / 2 - 10;
-    const centerSize = 300, satSize = 220, radius = 340;
+    const centerSize = 360, satSize = 260, radius = 400;
     if(slotInPage === 0) {
       return { x: cx - centerSize/2, y: cy - centerSize/2, w: centerSize, h: centerSize };
     }
