@@ -375,6 +375,34 @@ body {
 }
 .icon-thumb-wrap.pending .del-overlay { display: flex; }
 .icon-thumb-wrap.pending .icon-thumb { opacity: 0.35; }
+
+/* Order number badge — shows draw sequence, updates after reordering */
+.icon-thumb-wrap .order-badge {
+  position: absolute;
+  top: -5px; left: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  background: #6366f1;
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  box-shadow: 0 0 0 1.5px #060a12;
+}
+
+/* Long-press-drag reorder state */
+.icon-thumb-wrap.drag-active {
+  z-index: 50;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.55);
+  border-color: #34d399;
+  touch-action: none;
+}
+#icon-strip.dragging-active { overflow-x: hidden; }
 </style>
 </head>
 <body>
@@ -1126,13 +1154,26 @@ function renderIconStrip() {
   icons.forEach((ic, i) => {
     const wrap = document.createElement('div');
     wrap.className = 'icon-thumb-wrap' + (pendingDeleteIds.has(ic.id) ? ' pending' : '');
-    wrap.onclick = () => toggleDeleteIcon(ic.id);
+    wrap.dataset.id = ic.id;
+
+    wrap.onclick = () => {
+      // A drag that actually moved the icon shouldn't also register as a
+      // tap-to-delete on release — swallow exactly one click after that.
+      if(suppressClickOnce) { suppressClickOnce = false; return; }
+      toggleDeleteIcon(ic.id);
+    };
+    wrap.addEventListener('pointerdown', e => onThumbPointerDown(e, ic.id, wrap));
 
     const img = document.createElement('img');
     img.src = ic.dataURL;
     img.className = 'icon-thumb';
     img.title = `Icon ${i+1}`;
     wrap.appendChild(img);
+
+    const order = document.createElement('div');
+    order.className = 'order-badge';
+    order.textContent = i + 1;
+    wrap.appendChild(order);
 
     const del = document.createElement('div');
     del.className = 'del-overlay';
@@ -1160,6 +1201,116 @@ function toggleDeleteIcon(id) {
   } else {
     pendingDeleteIds.add(id);
     renderIconStrip();
+  }
+}
+
+// ── Long-press to reorder ─────────────────────────────────
+// Hold an icon in the strip for a moment, then drag it left/right to
+// change which position it sketches in. A quick tap still just toggles
+// delete (above); this only engages after a genuine hold.
+let dragState = null;
+let suppressClickOnce = false;
+const DRAG_HOLD_MS = 380;
+const DRAG_CANCEL_SLOP = 10; // px of movement before the timer fires that cancels a would-be drag
+
+function onThumbPointerDown(e, id, wrap) {
+  if(isAnimating) return;
+
+  dragState = { id, wrap, startX: e.clientX, startY: e.clientY, dragging: false, snapshot: null };
+  dragState.timer = setTimeout(() => {
+    if(!dragState || dragState.dragging) return;
+    startDrag(dragState, e.clientX, e.clientY);
+  }, DRAG_HOLD_MS);
+
+  window.addEventListener('pointermove', onStripPointerMove, { passive: false });
+  window.addEventListener('pointerup', onStripPointerUp);
+  window.addEventListener('pointercancel', onStripPointerUp);
+}
+
+function onStripPointerMove(e) {
+  if(!dragState) return;
+  const dx = e.clientX - dragState.startX, dy = e.clientY - dragState.startY;
+
+  if(!dragState.dragging) {
+    // Moved too much before the hold timer fired — this is a scroll or a
+    // tap-drag, not reorder intent. Bail out without starting a drag.
+    if(Math.abs(dx) > DRAG_CANCEL_SLOP || Math.abs(dy) > DRAG_CANCEL_SLOP) {
+      clearTimeout(dragState.timer);
+      dragState = null;
+    }
+    return;
+  }
+
+  e.preventDefault();
+  updateDragVisual(dragState, e.clientX, e.clientY);
+}
+
+function onStripPointerUp(e) {
+  window.removeEventListener('pointermove', onStripPointerMove);
+  window.removeEventListener('pointerup', onStripPointerUp);
+  window.removeEventListener('pointercancel', onStripPointerUp);
+
+  if(!dragState) return;
+  clearTimeout(dragState.timer);
+  if(dragState.dragging) finishDrag(dragState, e.clientX);
+  dragState = null;
+}
+
+function startDrag(state, clientX, clientY) {
+  state.dragging = true;
+  const wrap = state.wrap;
+  const rect = wrap.getBoundingClientRect();
+  state.grabOffsetX = clientX - rect.left;
+  state.grabOffsetY = clientY - rect.top;
+  state.naturalLeft = rect.left;
+  state.naturalTop = rect.top;
+
+  // Snapshot every OTHER thumbnail's current on-screen center-x, in the
+  // current order. Since we don't touch their DOM position until drop,
+  // these stay valid for the whole drag — no per-frame layout thrash.
+  state.snapshot = icons
+    .filter(ic => ic.id !== state.id)
+    .map(ic => {
+      const el = document.querySelector(`.icon-thumb-wrap[data-id="${ic.id}"]`);
+      const r = el.getBoundingClientRect();
+      return { id: ic.id, centerX: r.left + r.width / 2 };
+    });
+
+  wrap.classList.add('drag-active');
+  document.getElementById('icon-strip').classList.add('dragging-active');
+  if(navigator.vibrate) navigator.vibrate(12); // small haptic cue that drag mode engaged
+
+  updateDragVisual(state, clientX, clientY);
+}
+
+function updateDragVisual(state, clientX, clientY) {
+  const dx = (clientX - state.grabOffsetX) - state.naturalLeft;
+  const dy = (clientY - state.grabOffsetY) - state.naturalTop;
+  state.wrap.style.transform = `translate(${dx}px, ${dy}px) scale(1.15)`;
+}
+
+function computeTargetIndex(state, clientX) {
+  // Count how many of the OTHER thumbnails the pointer is now to the
+  // right of — that count is where the dragged icon should land.
+  let idx = 0;
+  for(const s of state.snapshot) if(clientX > s.centerX) idx++;
+  return idx;
+}
+
+function finishDrag(state, clientX) {
+  state.wrap.classList.remove('drag-active');
+  state.wrap.style.transform = '';
+  document.getElementById('icon-strip').classList.remove('dragging-active');
+
+  const targetIdx = computeTargetIndex(state, clientX);
+  const fromIdx = icons.findIndex(ic => ic.id === state.id);
+  if(fromIdx !== -1) {
+    const [moved] = icons.splice(fromIdx, 1);
+    icons.splice(targetIdx, 0, moved);
+    suppressClickOnce = true;
+    setTimeout(() => { suppressClickOnce = false; }, 300); // safety net if click never fires
+    renderIconStrip();
+    if(icons.length) drawPagePreview(0);
   }
 }
 
