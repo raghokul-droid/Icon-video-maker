@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -71,21 +71,26 @@ body {
 }
 
 /* Status badge */
+/* Status bar — sits BELOW the canvas (not floating over it), so it can
+   never cover an icon regardless of layout */
+#status-bar {
+  padding: 8px 16px;
+  background: #0f172a;
+  border-top: 1px solid rgba(99,102,241,0.15);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 #status-badge {
-  position: absolute;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6px 18px;
-  background: rgba(10,15,28,0.92);
+  padding: 5px 16px;
+  background: rgba(99,102,241,0.12);
   border: 1px solid rgba(99,102,241,0.35);
   border-radius: 100px;
   font-size: 12px;
   color: #a5b4fc;
   font-weight: 600;
   white-space: nowrap;
-  display: none;
-  backdrop-filter: blur(10px);
 }
 
 /* Stop button — lives in the header, never over the canvas/artwork */
@@ -436,12 +441,13 @@ body {
   </div>
 
   <div id="progress-bar"><div id="progress-fill"></div></div>
-  <div id="status-badge"></div>
   <div id="proc-overlay">
     <div class="spinner"></div>
     <div id="proc-text">Detecting icons…</div>
   </div>
 </div>
+
+<div id="status-bar"><div id="status-badge"></div></div>
 
 <!-- Bottom bar (shown after upload) -->
 <div id="bottom-bar">
@@ -1646,9 +1652,8 @@ function stopAnim() {
 function pause(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function showStatus(msg) {
-  const el = document.getElementById('status-badge');
-  el.style.display = 'block';
-  el.textContent = msg;
+  document.getElementById('status-bar').style.display = 'flex';
+  document.getElementById('status-badge').textContent = msg;
 }
 
 function showProc(msg) {
@@ -1661,4 +1666,3 @@ function hideProc() {
 </script>
 </body>
 </html>
-
