@@ -558,7 +558,7 @@ function getCellRect(slotInPage) {
     // circle, evenly spaced starting from the top. Sizes/radius tuned so
     // icons are large and closely spaced without overlapping.
     const cx = CW / 2, cy = CH / 2 - 10;
-    const centerSize = 360, satSize = 260, radius = 400;
+    const centerSize = 376, satSize = 260, radius = 400;
     if(slotInPage === 0) {
       return { x: cx - centerSize/2, y: cy - centerSize/2, w: centerSize, h: centerSize };
     }
@@ -581,11 +581,11 @@ function getCellRect(slotInPage) {
 
   if(layoutMode === '3triangle') {
     // Slot 0 = apex (top center), slots 1-2 = base corners (bottom left/right)
-    const size = 340;
+    const size = 475;
     const positions = [
-      { x: (CW - size)/2, y: 60 },          // apex
-      { x: 120, y: 560 },                   // bottom-left
-      { x: CW - 120 - size, y: 560 }        // bottom-right
+      { x: (CW - size)/2, y: 20 },          // apex
+      { x: 30, y: 565 },                    // bottom-left
+      { x: CW - 30 - size, y: 565 }         // bottom-right
     ];
     const p = positions[slotInPage] || positions[0];
     return { x: p.x, y: p.y, w: size, h: size };
@@ -1661,3 +1661,4 @@ function hideProc() {
 </script>
 </body>
 </html>
+
