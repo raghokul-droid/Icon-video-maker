@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+   <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -1157,6 +1157,8 @@ function drawPagePreview(pageIdx) {
     else { dh = cell.h - 20; dw = dh * ratio; }
     const dx = cell.x + (cell.w - dw) / 2;
     const dy = cell.y + (cell.h - dh) / 2;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high'; // sharper upscale than the canvas default when the icon is smaller than its cell
     ctx.drawImage(ic, dx, dy, dw, dh);
   }
 
@@ -1374,6 +1376,7 @@ function extractPoints(iconCanvas, cellRect) {
     const dy = cell.y + (cell.h - dh) / 2;
 
     tCtx.imageSmoothingEnabled = true;
+    tCtx.imageSmoothingQuality = 'high'; // sharper upscale — this scaled copy is what every sketch dot's color is sampled from
     tCtx.drawImage(ic, dx, dy, dw, dh);
 
     const imgData = tCtx.getImageData(Math.floor(dx), Math.floor(dy), Math.ceil(dw), Math.ceil(dh));
@@ -1679,4 +1682,3 @@ function hideProc() {
 </script>
 </body>
 </html>
-
