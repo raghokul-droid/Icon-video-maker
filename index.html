@@ -1,4 +1,4 @@
-   <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -1382,7 +1382,7 @@ function extractPoints(iconCanvas, cellRect) {
     const imgData = tCtx.getImageData(Math.floor(dx), Math.floor(dy), Math.ceil(dw), Math.ceil(dh));
     const data = imgData.data;
     const W = Math.ceil(dw), H = Math.ceil(dh);
-    const STEP = 2;
+    const STEP = 1; // denser sampling than before = more detailed, less gappy stroke reveal
     const qW = W / 2, qH = H / 2;
     const thresh = settings.thresh;
     // Pixels darker than this are treated as ink/linework (the "sketch").
@@ -1442,16 +1442,27 @@ function extractPoints(iconCanvas, cellRect) {
 const HAND_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" style="overflow:visible">
   <defs><filter id="sh"><feDropShadow dx="2" dy="4" stdDeviation="3" flood-opacity="0.3"/></filter></defs>
   <g filter="url(#sh)">
-    <path d="M120 400 L350 120 L370 135 L140 415 Z" fill="#2C3E50"/>
-    <path d="M120 400 L140 415 L90 450 Z" fill="#E0C097"/>
-    <path d="M280 350 C 350 300,450 400,480 600" stroke="#F5D0C5" stroke-width="130" stroke-linecap="round"/>
-    <path d="M200 340 C 250 380,320 320,310 270" stroke="#F5D0C5" stroke-width="60" stroke-linecap="round" fill="none"/>
-    <ellipse cx="305" cy="275" rx="18" ry="22" transform="rotate(-20 305 275)" fill="#FFC1CC"/>
-    <path d="M150 300 C 180 280,260 180,360 210" stroke="#F5D0C5" stroke-width="55" stroke-linecap="round" fill="none"/>
-    <ellipse cx="355" cy="210" rx="18" ry="22" transform="rotate(70 355 210)" fill="#FFC1CC"/>
-    <path d="M220 380 C 260 360,280 320,260 240" stroke="#F5D0C5" stroke-width="55" stroke-linecap="round" fill="none"/>
-    <ellipse cx="260" cy="245" rx="16" ry="20" transform="rotate(-10 260 245)" fill="#FFC1CC"/>
-    <path d="M400 450 L650 650 L350 750 Z" fill="#2C3E50"/>
+    <!-- Pen tip (black cone) - point lands exactly at 50,450, matching the existing hand-position offset math below -->
+    <path d="M50 450 L124 394 L106 376 Z" fill="#1f2937"/>
+    <!-- Pen barrel (white marker body with a thin outline so it reads against a white canvas) -->
+    <path d="M115 385 L300 160" stroke="#94a3b8" stroke-width="34" stroke-linecap="round"/>
+    <path d="M115 385 L300 160" stroke="#f8fafc" stroke-width="28" stroke-linecap="round"/>
+    <!-- Pen cap -->
+    <path d="M271 195 L300 160" stroke="#1f2937" stroke-width="30" stroke-linecap="round"/>
+    <!-- Forearm -->
+    <path d="M260 360 L380 480" stroke="#F0C9A0" stroke-width="95" stroke-linecap="round"/>
+    <!-- Palm -->
+    <ellipse cx="255" cy="345" rx="78" ry="66" fill="#F0C9A0" transform="rotate(35 255 345)"/>
+    <ellipse cx="270" cy="370" rx="60" ry="40" fill="#DDA978" opacity="0.45" transform="rotate(35 270 370)"/>
+    <!-- Index finger over the pen -->
+    <path d="M232 308 L158 240" stroke="#F0C9A0" stroke-width="36" stroke-linecap="round"/>
+    <!-- Thumb crossing the pen from the near side -->
+    <path d="M205 338 L148 300" stroke="#F0C9A0" stroke-width="32" stroke-linecap="round"/>
+    <!-- Middle finger, curled -->
+    <path d="M250 300 L205 255" stroke="#E8BD94" stroke-width="30" stroke-linecap="round"/>
+    <!-- Knuckle crease lines for definition -->
+    <path d="M190 280 L205 300" stroke="#C98E5E" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+    <path d="M175 270 L192 288" stroke="#C98E5E" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
   </g>
 </svg>`;
 const handImg = new Image();
@@ -1682,3 +1693,4 @@ function hideProc() {
 </script>
 </body>
 </html>
+
